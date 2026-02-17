@@ -7,379 +7,264 @@ behavior when actual tools are not available or when consistent, controllable re
 are needed for evaluation purposes.
 """
 
-from textwrap import dedent
+FUNCTION_TOOL_RESPONSE_GENERATION_PROMPT = """
+        You are simulating the execution of a Python function called '{tool_name}'.
 
-FUNCTION_TOOL_RESPONSE_GENERATION_PROMPT = dedent(
-    """
-You are simulating a function tool call for agent evaluation. Generate a realistic response based on the function name, 
-parameters, and context.
+        Function Input Schema:
+        {input_schema}
 
-## Function Tool Information
-Tool Name: {tool_name}
-Parameters: {parameters}
+        Output Schema:
+        {output_schema}
 
-## Initial State Context
-{initial_state_description}
-
-## Current State & Previous Tool Responses (for context)
-{previous_responses}
-
-## Instructions
-1. Analyze the function name and parameters to understand what this tool should do
-2. Use the initial state description to understand the starting context and available data
-3. Generate a realistic response that would be returned by such a function
-4. Consider the previous responses to maintain consistency in the simulation
-5. Ensure responses are consistent with the established state and realistic for the domain
-6. Return valid JSON that represents the function's return value
-
-## Response Format
-Return a JSON object that represents what this function would return. Examples:
-
-For data retrieval functions:
-```json
-{{
-  "status": "success",
-  "data": {{
-    "result": "retrieved data",
-    "count": 42
-  }}
-}}
-```
-
-For action functions:
-```json
-{{
-  "status": "success", 
-  "message": "Action completed successfully",
-  "transaction_id": "txn_12345"
-}}
-```
-
-For calculation functions:
-```json
-{{
-  "result": 156.78,
-  "unit": "meters"
-}}
-```
-
-Generate only valid JSON with no markdown code blocks or additional explanation."""
-)
-
-MCP_TOOL_RESPONSE_GENERATION_PROMPT = dedent(
-    """You are simulating an MCP (Model Context Protocol) tool call for agent evaluation. Generate a realistic response 
-based on the tool name, input payload, and context.
-
-## MCP Tool Information  
-Tool Name: {tool_name}
-Input Payload: {mcp_payload}
-
-## Initial State Context
-{initial_state_description}
-
-## Current State & Previous Tool Responses (for context)
-{previous_responses}
-
-## Instructions
-1. Analyze the tool name and input payload to understand what this MCP tool should do
-2. Use the initial state description to understand the starting context and available data
-3. Generate a realistic response following MCP response format
-4. Consider the previous responses to maintain consistency in the simulation
-5. Ensure responses are consistent with the established state and realistic for the domain
-6. Return valid JSON in MCP response format
-
-## MCP Response Format
-MCP tools return responses in the official MCP ToolResultContent format:
-
-For successful operations:
-```json
-{{
-  "tool_use_id": "tool_call_123",
-  "content": [
-    {{
-      "type": "text",
-      "text": "Operation completed successfully. Retrieved 5 items."
-    }}
-  ],
-  "is_error": false
-}}
-```
-
-For data operations with structured content:
-```json
-{{
-  "tool_use_id": "tool_call_456", 
-  "content": [
-    {{
-      "type": "text",
-      "text": "Found user profile for john.doe"
-    }},
-    {{
-      "type": "resource",
-      "resource": {{
-        "uri": "user://john.doe",
-        "name": "John Doe Profile",
-        "mimeType": "application/json"
-      }}
-    }}
-  ],
-  "structured_content": {{
-    "user_id": "john.doe",
-    "profile_data": {{}}
-  }},
-  "is_error": false
-}}
-```
-
-For errors:
-```json
-{{
-  "tool_use_id": "tool_call_789",
-  "content": [
-    {{
-      "type": "text",
-      "text": "Error: User not found"
-    }}
-  ],
-  "is_error": true
-}}
-```
-
-Generate only valid JSON with no markdown code blocks or additional explanation."""
-)
-
-API_TOOL_RESPONSE_GENERATION_PROMPT = dedent(
-    """You are simulating an API tool call for agent evaluation. Generate a realistic HTTP response based on the API 
-endpoint, method, payload, and context.
-
-## API Tool Information
-Tool Name: {tool_name}  
-Path: {path}
-Method: {method}
-Request Payload: {api_payload}
-
-## Initial State Context
-{initial_state_description}
-
-## Current State & Previous Tool Responses (for context)
-{previous_responses}
-
-## Instructions
-1. Analyze the API path, method, and payload to understand what this endpoint should do
-2. Use the initial state description to understand the starting context and available data
-3. Generate a realistic HTTP response with appropriate status code and data
-4. Consider the previous responses to maintain consistency in the simulation
-5. Ensure responses are consistent with the established state and realistic for the domain
-6. Return valid JSON in HTTP response format
-
-## HTTP Response Format
-API responses should include status codes and appropriate data:
-
-For successful GET requests:
-```json
-{{
-  "status": 200,
-  "data": {{
-    "id": 123,
-    "name": "Example Item",
-    "created_at": "2024-01-15T10:30:00Z"
-  }}
-}}
-```
-
-For successful POST requests:
-```json
-{{
-  "status": 201,
-  "data": {{
-    "id": 456,
-    "message": "Resource created successfully"
-  }}
-}}
-```
-
-For errors:
-```json
-{{
-  "status": 404,
-  "error": {{
-    "type": "not_found",
-    "title": "Not Found", 
-    "detail": "The requested resource could not be found"
-  }}
-}}
-```
-
-For validation errors:
-```json
-{{
-  "status": 400,
-  "error": {{
-    "type": "validation_error",
-    "title": "Bad Request",
-    "detail": "Missing required field: email"
-  }}
-}}
-```
-
-Generate only valid JSON with no markdown code blocks or additional explanation."""
-)
-
-UNIFIED_TOOL_RESPONSE_GENERATION_PROMPT = """
-        You are simulating the response of a tool call based on the provided context.
-        The tool type is: {tool_type} (one of: "function", "mcp", or "api")
-
-        The tool {tool_name} has the following schema:
-        {schema}
-
-        Now generate the response for the following tool call with the user-provided payload:
+        Function Parameters input payload:
         {user_payload}
 
-        You MUST validate this payload AND evaluate consistency with previously returned results or system state:
-        🧠 Prior State Context:
+        Available State Context:
         {previous_responses}
 
-        🎯 Your goal is to simulate a **realistic and schema-compliant tool response** for the given input payload.
-        You must validate the payload **strictly against the input schema** and consider any constraints from prior state.
-
-        ---
-        🧪 CRITICAL INPUT VALIDATION RULES:
-
-        COMMON VALIDATION RULES (ALL TOOL TYPES):
-        1. Check the schema for required parameters/fields
-        2. If ANY required parameter/field is missing, respond with an appropriate error
-        3. If all required parameters/fields are present but ANY has incorrect format or value, respond with a validation error
-        4. Do NOT respond with success unless ALL validation checks pass
-        5. Strictly follow the schema's requirements - no exceptions or assumptions
-
-        FUNCTION-SPECIFIC VALIDATION:
+        IMPORTANT:
+        - Simulate what this Python function would return when called with these parameters
+        - Use the state context and call history to provide consistent responses
         - Validate parameters against the function schema strictly
-        - Check required parameters - if any are missing, return a validation error
-        - Check parameter types - if any have wrong types, return a type error
+        - Validate the output against the output schema if provided
+        - Return realistic Python return values (not HTTP responses)
 
-        MCP-SPECIFIC VALIDATION:
-        - Check the tool's tool_schema for a "required" field list under properties
-        - Validate types, formats, enums, and constraints strictly according to the JSON Schema
+        VALIDATION RULES:
+        1. Check required parameters from the schema - if any are missing, return a validation error
+        2. Check parameter types - if any have wrong types, return a type error
+        3. Only return success if all parameters are valid
 
-        API-SPECIFIC VALIDATION:
-        - Check the input schema for a "required" field list
-        - If ANY required field is missing, respond with a 400 Bad Request error
-        - If all required fields are present but any field has incorrect format or value, respond with a 422 Unprocessable Entity error
-
-        ---
-        🔧 RESPONSE FORMAT REQUIREMENTS:
-
-        FUNCTION TOOL RESPONSE FORMAT:
-        
         SUCCESS RESPONSE FORMAT:
-        {
+        {{
           "status": "success",
           "result": <actual_function_return_value>
-        }
+        }}
 
         ERROR RESPONSE FORMATS:
 
         Missing required parameter:
-        {
+        {{
           "status": "error",
           "error_type": "missing_parameter",
           "message": "Missing required parameter: <param_name>",
           "parameter": "<param_name>"
-        }
+        }}
 
         Invalid parameter type:
-        {
+        {{
           "status": "error",
           "error_type": "invalid_type",
           "message": "Parameter '<param_name>' expected <expected_type>, got <actual_type>",
           "parameter": "<param_name>"
-        }
+        }}
 
         Function execution error:
-        {
+        {{
           "status": "error",
           "error_type": "execution_error",
           "message": "<error_description>"
-        }
+        }}
 
-        MCP TOOL RESPONSE FORMAT:
+        Generate only valid JSON with no markdown or explanation.
+        """
+
+MCP_TOOL_RESPONSE_GENERATION_PROMPT = """
+        You are simulating the response of an MCP (Model Context Protocol) tool call based on the following context:
+
+        The MCP tool {tool_name} has the following input schema:
+
+        {input_schema}
+
+        Output Schema:
+        {output_schema}
+
+        Now generate the response for the following MCP tool call with the following user-provided input arguments:
+        {user_payload}
+
+        You MUST validate this payload AND evaluate consistency with previously returned results or system state, described below.
+        🧠 Prior State Context:
+        {previous_responses}
+        🎯 Your goal is to simulate a **realistic and schema-compliant MCP tool response** for the given input payload. You must validate the payload **strictly against the input schema** and consider any constraints from prior state.
+
+        ---
+        🧪 CRITICAL INPUT VALIDATION RULES:
+        1. Check the tool's tool_schema for a `"required"` field list under properties.
+        2. If **ANY** required argument is **missing** in the payload, respond with an error.
+        3. If all required arguments are present but **any argument has incorrect format or value**, respond with a validation error.
+        4. Do NOT respond with success unless ALL validation checks pass.
+        5. You MUST validate types, formats, enums, and constraints strictly according to the JSON Schema.
+
+        ---
+        🔧 CRITICAL RESPONSE FORMAT REQUIREMENTS:
+        MCP tool responses follow a specific format with a content array.
+        ALL responses MUST be in the proper MCP response format.
+
+        ---
+        📘 SUCCESS RESPONSE FORMAT:
+        ✅ Use only if:
+        - All **required** arguments from the tool_schema are present
+        - All arguments match their expected **types**, **formats**, and **constraints**
+        - Prior state allows successful completion
+
+        🚨 STRICT SCHEMA COMPLIANCE:
+        - You MUST strictly follow the provided tool_schema's "required" fields list
+        - Even if an argument seems logically optional, if it's marked as "required" in the schema, it MUST be present
+        - Do NOT make assumptions about what arguments are "really" needed - follow the schema exactly
+        - If ANY required argument is missing, return an error immediately
 
         SUCCESS RESPONSE STRUCTURE:
-        {
+        ```json
+        {{
           "content": [
-            {
+            {{
               "type": "text",
               "text": "<response_content_as_text_or_json_string>"
-            }
+            }}
           ]
-        }
+        }}
+        ```
 
         OR for resource-based responses:
-        {
+        ```json
+        {{
           "content": [
-            {
+            {{
               "type": "resource",
-              "resource": {
+              "resource": {{
                 "uri": "<resource_uri>",
                 "mimeType": "<mime_type>",
                 "text": "<resource_content>"
-              }
-            }
+              }}
+            }}
           ]
-        }
+        }}
+        ```
 
-        ERROR RESPONSE STRUCTURE:
-        {
+        EXAMPLE SUCCESS RESPONSES:
+
+        For simple text response:
+        ```json
+        {{
+          "content": [
+            {{
+              "type": "text",
+              "text": "Successfully executed the operation. Result: 42"
+            }}
+          ]
+        }}
+        ```
+
+        For structured data response:
+        ```json
+        {{
+          "content": [
+            {{
+              "type": "text",
+              "text": "{{\\"result\\": \\"success\\", \\"data\\": {{\\"id\\": \\"123\\", \\"name\\": \\"Example\\"}}}}"
+            }}
+          ]
+        }}
+        ```
+
+        For resource response:
+        ```json
+        {{
+          "content": [
+            {{
+              "type": "resource",
+              "resource": {{
+                "uri": "file:///path/to/resource",
+                "mimeType": "application/json",
+                "text": "{{\\"data\\": \\"example\\"}}"
+              }}
+            }}
+          ]
+        }}
+        ```
+
+        ---
+        📘 ERROR RESPONSE FORMAT:
+        ❌ Use when:
+        - One or more required arguments are missing
+        - Any argument has invalid type, format, or unacceptable value
+        - Tool execution fails for any reason
+
+        **ERROR RESPONSE STRUCTURE:**
+        ```json
+        {{
           "isError": true,
           "content": [
-            {
+            {{
               "type": "text",
               "text": "Error: <error_message_describing_what_went_wrong>"
-            }
+            }}
           ]
-        }
+        }}
+        ```
 
-        API TOOL RESPONSE FORMAT:
+        EXAMPLE ERROR RESPONSES:
 
-        SUCCESS RESPONSE STRUCTURE:
-        {
-          "status": 200,  // Use 201 for creation actions only
-          "data": {
-            // actual response data matching the schema
-          }
-        }
+        Missing required argument:
+        ```json
+        {{
+          "isError": true,
+          "content": [
+            {{
+              "type": "text",
+              "text": "Error: Missing required argument: 'path'. The 'path' argument is required for this tool."
+            }}
+          ]
+        }}
+        ```
 
-        ERROR RESPONSE STRUCTURES:
+        Invalid argument type:
+        ```json
+        {{
+          "isError": true,
+          "content": [
+            {{
+              "type": "text",
+              "text": "Error: Invalid argument type for 'count'. Expected number, but got string."
+            }}
+          ]
+        }}
+        ```
 
-        Missing required field:
-        {
-          "status": 400,
-          "error": {
-            "code": "MISSING_REQUIRED_FIELD",
-            "message": "Missing required field: [field_name]",
-            "field": "[field_name]"
-          }
-        }
+        Invalid format or constraint violation:
+        ```json
+        {{
+          "isError": true,
+          "content": [
+            {{
+              "type": "text",
+              "text": "Error: Invalid value for 'email'. Must be a valid email address format."
+            }}
+          ]
+        }}
+        ```
 
-        Invalid format or value:
-        {
-          "status": 422,
-          "error": {
-            "code": "INVALID_FORMAT",
-            "message": "Invalid [field_name] format",
-            "field": "[field_name]"
-          }
-        }
+        Tool execution error:
+        ```json
+        {{
+          "isError": true,
+          "content": [
+            {{
+              "type": "text",
+              "text": "Error: Failed to execute tool. File not found: /path/to/file"
+            }}
+          ]
+        }}
+        ```
 
         ---
         🔍 FINAL VALIDATION CHECK:
         Before generating any response, perform this validation:
-        1. Check the schema's required parameters/fields list
-        2. Verify EVERY required parameter/field is present in the user payload
-        3. Check all parameter/field types match the schema
-        4. Check format constraints if applicable
+        1. Check the tool_schema's "required" fields list
+        2. Verify EVERY required argument is present in the user payload
+        3. Check all argument types match the schema (string, number, boolean, object, array)
+        4. Check format constraints (email, uri, date-time, etc.)
         5. Check enum constraints if specified
-        6. Check numeric constraints if applicable
+        6. Check numeric constraints (minimum, maximum, etc.)
         7. If ANY validation fails, return an error response immediately
         8. Do NOT proceed with success response if validation fails
 
@@ -388,26 +273,287 @@ UNIFIED_TOOL_RESPONSE_GENERATION_PROMPT = """
 
         1. DO NOT include markdown code blocks, commentary, or explanation in your response
         2. Output must be valid raw JSON only
-        3. Generate only valid JSON with no markdown or explanation
-        4. All responses must follow the exact format for the specific tool type
-        5. All required parameters/fields must be validated before generating success responses
-        6. All parameter/field types and formats must match the schema exactly
-        7. Always reflect and respect prior state if applicable
-        8. Generate realistic and contextually appropriate responses based on the tool's description
+        3. ALL responses MUST follow the MCP response format with a "content" array
+        4. Success responses have a "content" array with at least one content item
+        5. Error responses MUST have "isError": true and a "content" array with error message
+        6. The content array items must have a "type" field (typically "text" or "resource")
+        7. For text content, include a "text" field with the actual content
+        8. For resource content, include a "resource" field with uri, mimeType, and content
+        9. All required arguments must be validated before generating success responses
+        10. All argument types and formats must match the tool_schema exactly
+        11. Always reflect and respect prior state if applicable
+        12. Generate realistic and contextually appropriate responses based on the tool's description
+        13. If the tool is meant to perform an action, simulate that action's success or failure
+        14. If the tool is meant to retrieve data, generate realistic data based on the arguments
 
-        FUNCTION-SPECIFIC RULES:
-        - Return realistic Python return values (not HTTP responses)
+        ---
+        📖 MCP TOOL RESPONSE GUIDELINES:
 
-        MCP-SPECIFIC RULES:
-        - ALL responses MUST follow the MCP response format with a "content" array
-        - Success responses have a "content" array with at least one content item
-        - Error responses MUST have "isError": true and a "content" array with error message
-        - The content array items must have a "type" field (typically "text" or "resource")
+        1. **Understand the tool's purpose**: Read the tool description carefully to understand what it's meant to do
+        2. **Validate inputs thoroughly**: Check all required arguments and their types/formats
+        3. **Generate contextual responses**: The response should match what the tool is described to do
+        4. **Use appropriate content types**:
+           - Use "text" type for most responses
+           - Use "resource" type when returning files or structured resources
+        5. **Be consistent with state**: If this tool was called before with similar inputs, ensure responses are consistent
+        6. **Simulate realistic behavior**:
+           - File operations should reference actual paths from inputs
+           - Database operations should return realistic records
+           - API calls should return realistic data structures
+        7. **Handle edge cases**: Validate for missing files, invalid inputs, etc.
 
-        API-SPECIFIC RULES:
-        - ALL responses MUST include a "status" field with the appropriate HTTP status code
-        - Use status 201 only for creation actions, 200 for all other successful actions
-        - Success responses MUST have a "data" field containing the actual response data
-        - Error responses MUST have an "error" field containing the error details
-        - AVOID NESTED DATA FIELDS - put response content directly in the "data" field
+        """
+
+API_TOOL_RESPONSE_GENERATION_PROMPT = """
+        You are simulating the return value of an API action call based on the following context:
+
+        The tool {tool_name} has the following OpenAPI-style input schema:
+
+        {input_schema}
+
+        Output Schema:
+        {output_schema}
+
+        Now generate the return value for the following action call with the following user-provided API payload:
+        {user_payload}
+
+        You MUST validate this payload AND evaluate consistency with previously returned results or system state, described below.
+        🧠 Prior State Context:
+        {previous_responses}
+        🎯 Your goal is to simulate a **realistic and schema-compliant tool response** for the given input payload. You must validate the payload **strictly against the input schema** and consider any constraints from prior state.
+
+        ---
+        🧪 CRITICAL INPUT VALIDATION RULES:
+        1. Check the input schema for a `"required"` field list.
+        2. If **ANY** required field is **missing** in the payload, respond with a **400 Bad Request** error.
+        3. If all required fields are present but **any field has incorrect format or value**, respond with a **422 Unprocessable Entity** error.
+        4. Do NOT respond with success unless ALL validation checks pass.
+        5. You MUST simulate an error even if the request looks "reasonable" — strictly follow the schema's rules., treat this tool as deprecated and simulate an error.
+
+        ---
+        🔧 CRITICAL RESPONSE FORMAT REQUIREMENTS:
+        ALL responses MUST include a "status" field with the appropriate HTTP status code.
+        This is MANDATORY - no response should be generated without a status field.
+
+        ---
+        You MUST use the correct HTTP status code based on the tool description and operation summary:
+
+        ✅ SUCCESS SCENARIOS
+        Use status 201 only if:
+        The operation is a creation action, as clearly indicated in the tool's description or summary (e.g., "create", "add", "register", "generate new", etc.)
+        These are typically POST or PUT methods used specifically for creating new resources
+
+        Use status 200 for all other successful actions, including:
+
+        GET requests (reading or retrieving data)
+
+        DELETE requests (removal of resources)
+
+        POST or PUT requests that update, modify, or perform non-creation tasks
+
+        ❗ Do NOT use 201 unless the tool description/summary explicitly refers to creation of a new resource.
+
+        ---
+        📘 SUCCESS RESPONSE RULE:
+        ✅ Use only if:
+        - All **required** fields from the schema are present
+        - All fields match their expected **types**, **formats**, and **enum constraints**
+        - Prior state allows successful completion (e.g., not blocked, rate-limited, etc.)
+
+        🚨 STRICT SCHEMA COMPLIANCE:
+        - You MUST strictly follow the provided schema's "required" fields list
+        - Even if a field seems logically optional, if it's marked as "required" in the schema, it MUST be present
+        - Do NOT make assumptions about what fields are "really" needed - follow the schema exactly
+        - If ANY required field is missing, return a 400 error immediately
+
+        SUCCESS RESPONSE STRUCTURE:
+        ```json
+        {{
+          "status": 200,
+          "data": {{
+            // actual response data matching the schema - DO NOT add another "data" field here
+          }}
+        }}
+        ```
+
+        🚨 CRITICAL: AVOID NESTED DATA FIELDS
+        - The "data" field should contain the actual response content directly
+        - DO NOT create nested structures like {{"data": {{"data": [...]}}}}
+        - If the schema expects an array, put it directly in "data": [...]
+        - If the schema expects an object, put the object properties directly in "data": {{...}}
+
+        EXAMPLE SUCCESS RESPONSES:
+
+        For object response (status 200):
+        ```json
+        {{
+          "status": 200,
+          "data": {{
+            "managerAlias": "mjones",
+            "managerLevel": "L6", 
+            "teamName": "Engineering",
+            "managerName": "Mike Jones"
+          }}
+        }}
+        ```
+
+        For array response (status 200):
+        ```json
+        {{
+          "status": 200,
+          "data": [
+            {{
+              "id": "1",
+              "name": "Item 1"
+            }},
+            {{
+              "id": "2", 
+              "name": "Item 2"
+            }}
+          ]
+        }}
+        ```
+
+        For creation response (status 201):
+        ```json
+        {{
+          "status": 201,
+          "data": {{
+            "id": "12345",
+            "name": "New Resource",
+            "createdAt": "2024-01-15T10:30:00Z",
+            "status": "created"
+          }}
+        }}
+        ```
+
+        ---
+        📘 ERROR RESPONSE RULES:
+        ❌ Use **400** (`MISSING_REQUIRED_FIELD`) if:
+        - One or more required fields are missing
+
+        ❌ Use **422** (`INVALID_FORMAT`) if:
+        - Any field has invalid type, format, or unacceptable value
+        
+
+        **ERROR TYPE 1: Missing Required Field (status 400)**
+        - Trigger when ANY required field from the schema is missing from the payload
+        - STRICTLY follow the schema's "required" fields list - do NOT make exceptions
+        - Even if the field seems logically optional, if it's in "required", it MUST be present
+        - MUST use status code 400
+        
+        ```json
+        {{
+          "status": 400,
+          "error": {{
+            "code": "MISSING_REQUIRED_FIELD",
+            "message": "Missing required field: [field_name]",
+            "field": "[field_name]"
+          }}
+        }}
+        ```
+
+        **ERROR TYPE 2: Invalid Format or Value (status 422)**
+        - Trigger when all required fields are present BUT one or more fields have:
+          * Wrong data type (string instead of number, etc.)
+          * Invalid format (malformed email, invalid date, etc.)
+          * Unacceptable enum values
+          * Values that don't meet validation constraints
+        - MUST use status code 422
+
+        ```json
+        {{
+          "status": 422,
+          "error": {{
+            "code": "INVALID_FORMAT",
+            "message": "Invalid [field_name] format",
+            "field": "[field_name]"
+          }}
+        }}
+        ```
+
+        EXAMPLE ERROR RESPONSES:
+
+        Missing required field example:
+        ```json
+        {{
+          "status": 400,
+          "error": {{
+            "code": "MISSING_REQUIRED_FIELD",
+            "message": "Missing required field: alias",
+            "field": "alias"
+          }}
+        }}
+        ```
+
+        Invalid format example:
+        ```json
+        {{
+          "status": 422,
+          "error": {{
+            "code": "INVALID_FORMAT", 
+            "message": "Invalid email format",
+            "field": "email"
+          }}
+        }}
+        ```
+
+        ---
+        🔍 FINAL VALIDATION CHECK:
+        Before generating any response, perform this validation:
+        1. Check the schema's "required" fields list
+        2. Verify EVERY required field is present in the user payload
+        3. If ANY required field is missing, return status 400 error immediately
+        4. Do NOT proceed with success response if required fields are missing
+        
+        ---
+        ⚠️ STRICT FORMAT RULES:
+
+        1. DO NOT include markdown, commentary, or explanation in your response
+        2. Output must be valid raw JSON only
+        3. ALL responses MUST include a "status" field with the appropriate HTTP status code
+        4. Success responses MUST have a "data" field containing the actual response data
+        5. Error responses MUST have an "error" field containing the error details
+        6. All required fields must be included in success responses
+        7. All field types and enum values must match the schema exactly
+        8. Error responses MUST follow the exact format shown above with correct status codes
+        9. Do NOT generate plain error messages — use the structured error format shown above
+        10. Always reflect and respect prior state if applicable (e.g., account blocked = fail)
+        11. The status field is MANDATORY in every single response
+        12. STRICTLY follow the schema's required fields - no exceptions or assumptions
+        13. 🚨 CRITICAL: DO NOT create nested "data" fields - put response content directly in the "data" field
+        14. If schema expects an array, use "data": [...] NOT "data": {{"data": [...]}}
+        15. If schema expects an object, use "data": {{...}} NOT "data": {{"data": {{...}}}}
+        
+        """
+
+UNIFIED_TOOL_RESPONSE_GENERATION_PROMPT = """
+        You are simulating the execution of the tool '{tool_name}'.
+
+        Tool Input Schema:
+        {input_schema}
+
+        Output Schema:
+        {output_schema}
+
+        User Input Payload:
+        {user_payload}
+
+        Available State Context:
+        {previous_responses}
+
+        IMPORTANT:
+        - Simulate what this tool would return when called with the provided parameters
+        - Use the state context and call history to provide consistent responses
+        - Validate parameters against the tool schema strictly
+        - Validate the output against the output schema if provided
+        - Return realistic responses that match the tool's purpose and output schema
+
+
+        VALIDATION RULES:
+        1. Check required parameters from the schema - if any are missing, return a validation error
+        2. Check parameter types - if any have wrong types, return a validation error
+        3. Only return success if all parameters are valid
+
+        Generate only valid JSON with no markdown or explanation.
         """

@@ -168,9 +168,6 @@ class ToolSimulator:
     def __init__(
         self,
         state_registry: StateRegistry | None = None,
-        function_tool_prompt: str | None = None,
-        mcp_tool_prompt: str | None = None,
-        api_tool_prompt: str | None = None,
         model: Model | str | None = None,
         max_tool_call_cache_size: int = 20,
     ):
@@ -180,9 +177,6 @@ class ToolSimulator:
         Args:
             state_registry: Registry for maintaining tool state. If not provided,
                            a new StateRegistry will be created with max_tool_call_cache_size.
-            function_tool_prompt: Optional custom prompt for function tool response generation
-            mcp_tool_prompt: Optional custom prompt for MCP tool response generation
-            api_tool_prompt: Optional custom prompt for API tool response generation
             model: Provider for running inference or a string representing the model-id for Bedrock to use
             max_tool_call_cache_size: Maximum number of tool calls to store per state key.
                                      Only used when creating a new StateRegistry (ignored if state_registry
@@ -190,9 +184,7 @@ class ToolSimulator:
                                      Default is 20.
         """
         self.model = model
-        self.function_tool_prompt = function_tool_prompt or FUNCTION_TOOL_RESPONSE_GENERATION_PROMPT
-        self.mcp_tool_prompt = mcp_tool_prompt or FUNCTION_TOOL_RESPONSE_GENERATION_PROMPT
-        self.api_tool_prompt = api_tool_prompt or FUNCTION_TOOL_RESPONSE_GENERATION_PROMPT
+        self.tool_prompt = FUNCTION_TOOL_RESPONSE_GENERATION_PROMPT
         self.state_registry = state_registry or StateRegistry(max_tool_call_cache_size=max_tool_call_cache_size)
         self._registered_tools: dict[str, RegisteredTool] = {}
         self._initialize_shared_states()
@@ -228,13 +220,8 @@ class ToolSimulator:
             parameters_string = (
                 json.dumps({"args": args, "kwargs": kwargs}, indent=2) if args else json.dumps(kwargs, indent=2)
             )
-
-            input_data = {
-                "tool_name": registered_tool.name,
-                "parameters": parameters_string,
-            }
-
-            return self._call_tool(registered_tool, input_data, state_key)
+            
+            return self._call_tool(registered_tool, parameters_string, state_key)
 
         if registered_tool.function:
             wrapper.__name__ = registered_tool.function.__name__
@@ -274,33 +261,43 @@ class ToolSimulator:
             response_data = {"result": response_text}
         return response_data
 
-    def _call_tool(self, registered_tool: RegisteredTool, input_data: dict[str, Any], state_key: str) -> dict[str, Any]:
+    def _call_tool(self, registered_tool: RegisteredTool, parameters_string: str, state_key: str) -> dict[str, Any]:
         """Simulate a tool invocation and return the response."""
-        parameters = input_data.get("parameters", {})
+        # Get input schema from Strands tool decorator
+        input_schema_dict = registered_tool.function.tool_spec.get("inputSchema", {}).get("json", {})
+        input_schema = json.dumps(input_schema_dict, indent=2)
+
+        # Get output schema as JSON string using Pydantic's model_json_schema (output_schema is mandatory)
+        output_schema = registered_tool.output_schema.model_json_schema()
+        output_schema_string = json.dumps(output_schema, indent=2)
+
         current_state = self.state_registry.get_state(state_key)
 
-        # Use tool-specific prompt if provided, otherwise use default function prompt
-        prompt_template = registered_tool.prompt_template or self.function_tool_prompt
+        # Use tool-specific prompt if provided, otherwise use default tool prompt
+        prompt_template = registered_tool.prompt_template or self.tool_prompt
 
         prompt = prompt_template.format(
             tool_name=registered_tool.name,
-            parameters=parameters,
-            initial_state_description=current_state.get("initial_state", "No initial state provided."),
+            input_schema=input_schema,
+            output_schema=output_schema_string,
+            user_payload=parameters_string,
             previous_responses=json.dumps(current_state.get("previous_calls", []), indent=2),
         )
-        print(prompt)
+        #print(prompt)
         result = self._simulate_tool_call(prompt, structured_output_model=registered_tool.output_schema)
-        print(result)
+        #print(result)
         response_data = self._parse_simulated_response(result)
 
-        self.state_registry.cache_tool_call(registered_tool.name, state_key, response_data, parameters=parameters)
+        self.state_registry.cache_tool_call(
+            registered_tool.name, state_key, response_data, parameters=json.loads(parameters_string)
+        )
         print(f"[{registered_tool.name}] {response_data}")
         return response_data
 
     def tool(
         self,
+        output_schema: type[BaseModel],
         name: str | None = None,
-        output_schema: type[BaseModel] | None = None,
         share_state_id: str | None = None,
         initial_state_description: str | None = None,
         tool_prompt: str | None = None,
@@ -309,12 +306,11 @@ class ToolSimulator:
         Decorator for registering tools with flexible output schemas and prompts.
 
         IMPORTANT: This decorator expects the function to already be decorated with @tool
-        from strands.tools.decorator. When output_schema is not provided, the input_model
-        from the DecoratedFunctionTool's metadata will be automatically used as the output_schema.
+        from strands.tools.decorator.
 
         Args:
+            output_schema: Required Pydantic BaseModel for output schema validation.
             name: Optional name for the tool. If None, uses DecoratedFunctionTool.tool_name
-            output_schema: Optional Pydantic BaseModel for output schema validation.
             share_state_id: Optional shared state ID for sharing state between tools
             initial_state_description: Optional initial state description for the tool's context
             tool_prompt: Optional custom prompt for this specific tool. If None, uses function_tool_prompt from constructor.
@@ -333,21 +329,10 @@ class ToolSimulator:
 
                 tool_name = name or func.tool_name
 
-                final_output_schema = output_schema
-                if (
-                    final_output_schema is None
-                    and hasattr(func, "_metadata")
-                    and hasattr(func._metadata, "input_model")
-                ):
-                    final_output_schema = func._metadata.input_model
-                    logger.info(
-                        f"Using input_model from DecoratedFunctionTool metadata as output_schema for tool '{tool_name}'"
-                    )
-
                 registered_tool = RegisteredTool(
                     name=tool_name,
                     function=func,
-                    output_schema=final_output_schema,
+                    output_schema=output_schema,
                     initial_state_description=initial_state_description,
                     share_state_id=share_state_id,
                     prompt_template=tool_prompt,
