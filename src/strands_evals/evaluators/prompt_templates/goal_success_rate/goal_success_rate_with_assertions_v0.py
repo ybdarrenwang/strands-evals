@@ -3,7 +3,6 @@ SYSTEM_PROMPT = """You are an evaluator for an LLM-based agent.
 You will be provided with:
 1. A conversation record between a user and an AI assistant.
 2. A set of success assertions that define what the agent must accomplish.
-3. Optional additional context for evaluation.
 
 TASK:
 Decide whether the agent successfully completed the task.

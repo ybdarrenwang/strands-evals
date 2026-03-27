@@ -45,11 +45,14 @@ class GoalSuccessRateEvaluator(Evaluator[InputT, OutputT]):
 
     Supports two modes:
     - **Basic mode**: Evaluates goal success based on conversation analysis alone.
+      The judge LLM infers user goals from the conversation and checks whether they were met.
       Uses a Yes/No scoring rubric (Yes=1.0, No=0.0).
-    - **Assertion mode**: When assertions are provided via ``metadata["assertions"]``,
-      evaluates whether the agent's behavior satisfies the specified success assertions.
+    - **Assertion mode**: When ``expected_assertion`` is provided on the evaluation case,
+      evaluates whether the agent's behavior satisfies the specified success assertions —
+      human-authored statements describing expected agent actions, responses, or behaviors.
+      Unlike basic mode, assertion mode judges against explicit criteria defined upfront
+      rather than inferring goals from the conversation.
       Uses a SUCCESS/FAILURE scoring rubric (SUCCESS=1.0, FAILURE=0.0).
-      Optionally accepts ``metadata["additional_context"]`` for extra evaluation context.
     """
 
     evaluation_level = EvaluationLevel.SESSION_LEVEL
@@ -81,30 +84,20 @@ class GoalSuccessRateEvaluator(Evaluator[InputT, OutputT]):
         self.version = version
         self.model = model
 
-    def _has_assertions(self, evaluation_case: EvaluationData[InputT, OutputT]) -> bool:
-        """Check if the evaluation case contains assertions in metadata."""
-        if evaluation_case.metadata and evaluation_case.metadata.get("assertions"):
-            return True
-        return False
+    def _has_assertion(self, evaluation_case: EvaluationData[InputT, OutputT]) -> bool:
+        """Check if the evaluation case contains expected_assertion for assertion mode."""
+        return bool(evaluation_case.expected_assertion)
 
     def evaluate(self, evaluation_case: EvaluationData[InputT, OutputT]) -> list[EvaluationOutput]:
         session_input = self._parse_trajectory(evaluation_case)
 
-        if self._has_assertions(evaluation_case):
-            return self._evaluate_with_assertions(session_input, evaluation_case)
+        if self._has_assertion(evaluation_case):
+            return self._evaluate_with_assertion(session_input, evaluation_case)
 
         return self._evaluate_basic(session_input)
 
-    async def evaluate_async(self, evaluation_case: EvaluationData[InputT, OutputT]) -> list[EvaluationOutput]:
-        session_input = self._parse_trajectory(evaluation_case)
-
-        if self._has_assertions(evaluation_case):
-            return await self._evaluate_with_assertions_async(session_input, evaluation_case)
-
-        return await self._evaluate_basic_async(session_input)
-
     def _evaluate_basic(self, session_input: SessionLevelInput) -> list[EvaluationOutput]:
-        """Evaluate goal success using the basic prompt (no assertions)."""
+        """Evaluate goal success using the basic prompt (no criteria)."""
         prompt = self._format_prompt(session_input)
         evaluator_agent = Agent(model=self.model, system_prompt=self.system_prompt, callback_handler=None)
         result = evaluator_agent(prompt, structured_output_model=GoalSuccessRating)
@@ -119,23 +112,7 @@ class GoalSuccessRateEvaluator(Evaluator[InputT, OutputT]):
             )
         ]
 
-    async def _evaluate_basic_async(self, session_input: SessionLevelInput) -> list[EvaluationOutput]:
-        """Evaluate goal success using the basic prompt asynchronously."""
-        prompt = self._format_prompt(session_input)
-        evaluator_agent = Agent(model=self.model, system_prompt=self.system_prompt, callback_handler=None)
-        result = await evaluator_agent.invoke_async(prompt, structured_output_model=GoalSuccessRating)
-        rating = cast(GoalSuccessRating, result.structured_output)
-        normalized_score = self._score_mapping[rating.score]
-        return [
-            EvaluationOutput(
-                score=normalized_score,
-                test_pass=normalized_score >= 1.0,
-                reason=rating.reasoning,
-                label=rating.score,
-            )
-        ]
-
-    def _evaluate_with_assertions(
+    def _evaluate_with_assertion(
         self,
         session_input: SessionLevelInput,
         evaluation_case: EvaluationData[InputT, OutputT],
@@ -144,26 +121,6 @@ class GoalSuccessRateEvaluator(Evaluator[InputT, OutputT]):
         prompt = self._format_assertion_prompt(session_input, evaluation_case)
         evaluator_agent = Agent(model=self.model, system_prompt=self.assertion_system_prompt, callback_handler=None)
         result = evaluator_agent(prompt, structured_output_model=GoalSuccessAssertionRating)
-        rating = cast(GoalSuccessAssertionRating, result.structured_output)
-        normalized_score = self._assertion_score_mapping[rating.verdict]
-        return [
-            EvaluationOutput(
-                score=normalized_score,
-                test_pass=normalized_score >= 1.0,
-                reason=rating.reasoning,
-                label=rating.verdict,
-            )
-        ]
-
-    async def _evaluate_with_assertions_async(
-        self,
-        session_input: SessionLevelInput,
-        evaluation_case: EvaluationData[InputT, OutputT],
-    ) -> list[EvaluationOutput]:
-        """Evaluate goal success using assertion-based prompt asynchronously."""
-        prompt = self._format_assertion_prompt(session_input, evaluation_case)
-        evaluator_agent = Agent(model=self.model, system_prompt=self.assertion_system_prompt, callback_handler=None)
-        result = await evaluator_agent.invoke_async(prompt, structured_output_model=GoalSuccessAssertionRating)
         rating = cast(GoalSuccessAssertionRating, result.structured_output)
         normalized_score = self._assertion_score_mapping[rating.verdict]
         return [
@@ -193,9 +150,7 @@ class GoalSuccessRateEvaluator(Evaluator[InputT, OutputT]):
         evaluation_case: EvaluationData[InputT, OutputT],
     ) -> str:
         """Format evaluation prompt for assertion-based evaluation."""
-        metadata = evaluation_case.metadata or {}
-        assertions = metadata.get("assertions", "")
-        additional_context = metadata.get("additional_context", "N/A")
+        assertions = evaluation_case.expected_assertion or ""
 
         parts = []
 
@@ -203,6 +158,5 @@ class GoalSuccessRateEvaluator(Evaluator[InputT, OutputT]):
             parts.append(f"CONVERSATION RECORD:\n{self._format_session_history(session_input.session_history)}")
 
         parts.append(f"SUCCESS ASSERTIONS:\n{assertions}")
-        parts.append(f"ADDITIONAL CONTEXT:\n{additional_context}")
 
         return "\n\n".join(parts)

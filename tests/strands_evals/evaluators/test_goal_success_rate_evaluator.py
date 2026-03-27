@@ -116,31 +116,8 @@ def test_score_mapping(mock_agent_class, evaluation_data, score, expected_value,
     assert result[0].label == score
 
 
-@pytest.mark.asyncio
-@patch("strands_evals.evaluators.goal_success_rate_evaluator.Agent")
-async def test_evaluate_async(mock_agent_class, evaluation_data):
-    mock_agent = Mock()
-
-    async def mock_invoke_async(*args, **kwargs):
-        mock_result = Mock()
-        mock_result.structured_output = GoalSuccessRating(reasoning="All goals achieved", score=GoalSuccessScore.YES)
-        return mock_result
-
-    mock_agent.invoke_async = mock_invoke_async
-    mock_agent_class.return_value = mock_agent
-    evaluator = GoalSuccessRateEvaluator()
-
-    result = await evaluator.evaluate_async(evaluation_data)
-
-    assert len(result) == 1
-    assert result[0].score == 1.0
-    assert result[0].test_pass is True
-    assert result[0].reason == "All goals achieved"
-    assert result[0].label == GoalSuccessScore.YES
-
-
 @pytest.fixture
-def evaluation_data_with_assertions():
+def evaluation_data_with_assertion():
     now = datetime.now()
     span_info = SpanInfo(session_id="test-session", start_time=now, end_time=now)
 
@@ -166,38 +143,35 @@ def evaluation_data_with_assertions():
         input="What is 2 + 2?",
         actual_output="The answer is 4.",
         actual_trajectory=session,
-        name="test-assertions",
-        metadata={
-            "assertions": "The agent should use the calculator tool and return the correct answer of 4.",
-            "additional_context": "This is a simple math test.",
-        },
+        name="test-criteria",
+        expected_assertion="The agent should use the calculator tool and return the correct answer of 4.",
     )
 
 
-def test_has_assertions_true(evaluation_data_with_assertions):
+def test_has_assertion_true(evaluation_data_with_assertion):
     evaluator = GoalSuccessRateEvaluator()
-    assert evaluator._has_assertions(evaluation_data_with_assertions) is True
+    assert evaluator._has_assertion(evaluation_data_with_assertion) is True
 
 
-def test_has_assertions_false(evaluation_data):
+def test_has_assertion_false(evaluation_data):
     evaluator = GoalSuccessRateEvaluator()
-    assert evaluator._has_assertions(evaluation_data) is False
+    assert evaluator._has_assertion(evaluation_data) is False
 
 
-def test_has_assertions_empty_metadata():
-    data = EvaluationData(input="test", metadata={})
-    evaluator = GoalSuccessRateEvaluator()
-    assert evaluator._has_assertions(data) is False
-
-
-def test_has_assertions_no_metadata():
+def test_has_assertion_none():
     data = EvaluationData(input="test")
     evaluator = GoalSuccessRateEvaluator()
-    assert evaluator._has_assertions(data) is False
+    assert evaluator._has_assertion(data) is False
+
+
+def test_has_assertion_empty_string():
+    data = EvaluationData(input="test", expected_assertion="")
+    evaluator = GoalSuccessRateEvaluator()
+    assert evaluator._has_assertion(data) is False
 
 
 @patch("strands_evals.evaluators.goal_success_rate_evaluator.Agent")
-def test_evaluate_with_assertions(mock_agent_class, evaluation_data_with_assertions):
+def test_evaluate_with_assertion(mock_agent_class, evaluation_data_with_assertion):
     mock_agent = Mock()
     mock_result = Mock()
     mock_result.structured_output = GoalSuccessAssertionRating(
@@ -207,7 +181,7 @@ def test_evaluate_with_assertions(mock_agent_class, evaluation_data_with_asserti
     mock_agent_class.return_value = mock_agent
     evaluator = GoalSuccessRateEvaluator()
 
-    result = evaluator.evaluate(evaluation_data_with_assertions)
+    result = evaluator.evaluate(evaluation_data_with_assertion)
 
     assert len(result) == 1
     assert result[0].score == 1.0
@@ -225,7 +199,7 @@ def test_evaluate_with_assertions(mock_agent_class, evaluation_data_with_asserti
 )
 @patch("strands_evals.evaluators.goal_success_rate_evaluator.Agent")
 def test_assertion_score_mapping(
-    mock_agent_class, evaluation_data_with_assertions, verdict, expected_value, expected_pass
+    mock_agent_class, evaluation_data_with_assertion, verdict, expected_value, expected_pass
 ):
     mock_agent = Mock()
     mock_result = Mock()
@@ -234,34 +208,9 @@ def test_assertion_score_mapping(
     mock_agent_class.return_value = mock_agent
     evaluator = GoalSuccessRateEvaluator()
 
-    result = evaluator.evaluate(evaluation_data_with_assertions)
+    result = evaluator.evaluate(evaluation_data_with_assertion)
 
     assert len(result) == 1
     assert result[0].score == expected_value
     assert result[0].test_pass == expected_pass
     assert result[0].label == verdict
-
-
-@pytest.mark.asyncio
-@patch("strands_evals.evaluators.goal_success_rate_evaluator.Agent")
-async def test_evaluate_async_with_assertions(mock_agent_class, evaluation_data_with_assertions):
-    mock_agent = Mock()
-
-    async def mock_invoke_async(*args, **kwargs):
-        mock_result = Mock()
-        mock_result.structured_output = GoalSuccessAssertionRating(
-            reasoning="Agent satisfied all assertions", verdict=GoalSuccessAssertionScore.SUCCESS
-        )
-        return mock_result
-
-    mock_agent.invoke_async = mock_invoke_async
-    mock_agent_class.return_value = mock_agent
-    evaluator = GoalSuccessRateEvaluator()
-
-    result = await evaluator.evaluate_async(evaluation_data_with_assertions)
-
-    assert len(result) == 1
-    assert result[0].score == 1.0
-    assert result[0].test_pass is True
-    assert result[0].reason == "Agent satisfied all assertions"
-    assert result[0].label == GoalSuccessAssertionScore.SUCCESS
