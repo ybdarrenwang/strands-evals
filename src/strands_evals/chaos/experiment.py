@@ -33,6 +33,8 @@ class ChaosExperiment(Experiment):
             ChaosExperiment,
             ChaosPlugin,
             ChaosScenario,
+            ChaosScenarioAggregator,
+            display_chaos_aggregation,
         )
 
         chaos = ChaosPlugin()
@@ -52,6 +54,11 @@ class ChaosExperiment(Experiment):
         )
 
         reports = experiment.run_evaluations(task=lambda case: agent(case.input))
+
+        # Aggregate and display separately
+        aggregator = ChaosScenarioAggregator(known_tools=["search_tool", "database_tool"])
+        aggregations = aggregator.aggregate(reports)
+        display_chaos_aggregation(aggregations, reports=reports)
     """
 
     def __init__(
@@ -122,7 +129,7 @@ class ChaosExperiment(Experiment):
         for scenario in self.chaos_scenarios:
             logger.info(f"Running chaos scenario: {scenario.name}")
             self.chaos_plugin.set_active_scenario(scenario)
-            scenario_cases = self._tag_cases_with_scenario(scenario.name)
+            scenario_cases = self._tag_cases_with_scenario(scenario.name, scenario)
             original_cases = self._cases
             self._cases = scenario_cases
             try:
@@ -141,14 +148,19 @@ class ChaosExperiment(Experiment):
 
         return all_reports
 
-    def _tag_cases_with_scenario(self, scenario_name: str) -> list[Case]:
+    def _tag_cases_with_scenario(
+        self, scenario_name: str, scenario: Optional[ChaosScenario] = None
+    ) -> list[Case]:
         """Create copies of cases with scenario name injected into metadata.
 
         Args:
             scenario_name: The scenario name to tag.
+            scenario: Optional ChaosScenario object to extract tool_effects from.
 
         Returns:
             Deep copies of all cases with metadata["chaos_scenario"] set.
+            If a scenario is provided, also sets metadata["chaos_tool_effects"]
+            for downstream aggregation.
         """
         tagged_cases = []
         for case in self._cases:
@@ -156,6 +168,23 @@ class ChaosExperiment(Experiment):
             if tagged.metadata is None:
                 tagged.metadata = {}
             tagged.metadata["chaos_scenario"] = scenario_name
+
+            # Store structured tool_effects for aggregator consumption
+            if scenario is not None and scenario.tool_effects:
+                tool_effects_serialized = {}
+                for tool_name, effect_spec in scenario.tool_effects.items():
+                    if isinstance(effect_spec, str):
+                        tool_effects_serialized[tool_name] = effect_spec
+                    elif hasattr(effect_spec, "value"):
+                        # ToolChaosEffect enum
+                        tool_effects_serialized[tool_name] = effect_spec.value
+                    elif hasattr(effect_spec, "effect"):
+                        # ChaosEffectConfig
+                        tool_effects_serialized[tool_name] = effect_spec.effect.value
+                    else:
+                        tool_effects_serialized[tool_name] = str(effect_spec)
+                tagged.metadata["chaos_tool_effects"] = tool_effects_serialized
+
             # Update case name to include scenario for report clarity
             if tagged.name:
                 tagged.name = f"{tagged.name} [{scenario_name}]"
