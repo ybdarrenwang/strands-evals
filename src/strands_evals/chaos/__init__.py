@@ -17,6 +17,11 @@ from .effects import (
     ChaosEffectConfig,
     ToolChaosEffect,
 )
+from .evaluators import (
+    FailureCommunicationEvaluator,
+    PartialCompletionEvaluator,
+    RecoveryStrategyEvaluator,
+)
 from .experiment import ChaosExperiment
 from .plugin import ChaosPlugin
 from .scenario import ChaosScenario
@@ -30,6 +35,9 @@ __all__ = [
     "ChaosScenarioAggregator",
     "ChaosScenarioAggregation",
     "CoverageStatus",
+    "FailureCommunicationEvaluator",
+    "PartialCompletionEvaluator",
+    "RecoveryStrategyEvaluator",
     "ToolChaosEffect",
     "ToolEffectResult",
     "TOOL_CORRUPTION_EFFECTS",
