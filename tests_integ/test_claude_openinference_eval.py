@@ -202,7 +202,7 @@ def test_claude_multi_agent_evaluation(telemetry):
     test_cases = [
         Case[str, str](
             name="multi-agent-weather",
-            input="What is the weather for Seattle according to the local weather dataset?",
+            input="Use the weather-specialist agent to get the weather for Seattle from the local weather dataset.",
             expected_assertion=(
                 "The agent delegated to the weather-specialist and responded with "
                 "the weather in Seattle, which is Rainy and 55F."
