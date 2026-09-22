@@ -139,6 +139,14 @@ def test_extract_json_falls_back_to_first_parseable():
     assert _extract_json(text) == '{"foo": 1}'
 
 
+def test_extract_json_echoed_example_does_not_shadow_real_payload():
+    """A restated prompt example (which itself validates) must not be reported as the result."""
+    example = '{"errors": [{"location": "example-span", "category": ["c"], "evidence": ["e"], "confidence": ["high"]}]}'
+    real = '{"errors": [{"location": "real-span", "category": ["c"], "evidence": ["e"], "confidence": ["low"]}]}'
+    result = _parse_text_result(f"Following the example format:\n{example}\nMy annotation:\n{real}")
+    assert [f.span_id for f in result] == ["real-span"]
+
+
 def test_parse_text_result_basic():
     text = _make_json_response(
         [
