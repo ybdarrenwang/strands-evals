@@ -117,10 +117,7 @@ def test_extract_json_prefers_schema_over_decoy():
     decoy fails schema validation downstream and reintroduces the
     silent-empty diagnosis this logic exists to prevent.
     """
-    real_payload = (
-        '{"errors": [{"location": "s1", "category": ["err"], '
-        '"confidence": ["high"], "evidence": ["ev"]}]}'
-    )
+    real_payload = '{"errors": [{"location": "s1", "category": ["err"], "confidence": ["high"], "evidence": ["ev"]}]}'
     text = f'Example format {{"category": "tool_error"}}. Now the real one: {real_payload}'
     extracted = _extract_json(text)
     assert extracted == real_payload
