@@ -266,6 +266,7 @@ def _extract_balanced_json(text: str) -> str | None:
     surface an actionable error. Spans that don't parse — e.g. a regex like
     `[a-z0-9-]` — are skipped. Returns None if no candidate parses.
     """
+    payload: str | None = None
     first_parseable: str | None = None
     for open_ch, close_ch in (("{", "}"), ("[", "]")):
         for span in _iter_balanced_spans(text, open_ch, close_ch):
