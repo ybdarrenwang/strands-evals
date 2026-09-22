@@ -277,8 +277,8 @@ def _extract_balanced_json(text: str) -> str | None:
             if first_parseable is None:
                 first_parseable = candidate
             if isinstance(parsed, dict) and "errors" in parsed:
-                return candidate
-    return first_parseable
+                payload = candidate
+    return payload or first_parseable
 
 
 def _parse_text_result(text: str) -> list[FailureItem]:
